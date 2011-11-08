@@ -19,95 +19,84 @@
 
 package org.jasig.i18n.translate;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
-import java.io.Reader;
 import java.util.ArrayList;
-import java.util.Date;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.ListIterator;
 import java.util.Map;
-import java.util.TreeMap;
+import java.util.Set;
 
-import org.springframework.core.io.ClassPathResource;
-import org.springframework.core.io.Resource;
-
-import com.google.api.translate.Language;
-import com.google.api.translate.Translate;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.jasig.i18n.translate.GoogleTranslationResponse.Translation;
+import org.springframework.http.converter.HttpMessageConverter;
+import org.springframework.http.converter.json.MappingJacksonHttpMessageConverter;
+import org.springframework.web.client.RestTemplate;
 
 public class AutoTranslationService {
-        
-    public String getTranslationMessages(Resource mainMessagesFile, Resource languageMessagesFile, Language language) throws IOException {
-        
-        InputStream inputStream = mainMessagesFile.getInputStream();
-        Reader inputReader = new InputStreamReader(inputStream);
-        BufferedReader bufferedReader = new BufferedReader(inputReader);
+    
+    protected final Log log = LogFactory.getLog(getClass());
 
-        Map<String,String> translatedMessages = new TreeMap<String,String>();        
-
-        String line;
-        try {
-            
-            InputStream inputStream2 = languageMessagesFile.getInputStream();
-            Reader inputReader2 = new InputStreamReader(inputStream2);
-            BufferedReader bufferedReader2 = new BufferedReader(inputReader2);
-
-            /*
-             *  Parse the existing language file and build a map of key-value message
-             *  pairs.
-             */
-            while ((line = bufferedReader2.readLine()) != null) {
-                String[] s = line.split("=", 2);
-                if (s.length == 2) {
-                    translatedMessages.put(s[0], s[1]);
-                }
-            }
-            
-        } catch (Exception e) {
-            System.out.println("No file found");
-            System.out.println(e);
-        }
-
-        /*
-         *  Parse the main messages file and identify any message keys missing in
-         *  the language-specific file. For each missing message, add the key
-         *  to our translation key list and add the value as a new line in the
-         *  to-be-translated StringBuffer
-         */
-        List<String> keys = new ArrayList<String>();
-        while ((line = bufferedReader.readLine()) != null) {
-            String[] s = line.split("=", 2);
-            if (s.length == 2 && !translatedMessages.containsKey(s[0])) {
-                keys.add(s[0]);
-                translatedMessages.put(s[0], translateMessage(s[1], language));
-            }
-        }
-
-        // write out the translated message keypairs in message file format
-        StringBuffer translated = new StringBuffer();
-        for (Map.Entry<String, String> entry : translatedMessages.entrySet()) {
-            translated.append(entry.getKey()).append("=").append(entry.getValue()).append("\n");
-        }
-        
-        return translated.toString();
+    private String urlTemplate = "https://www.googleapis.com/language/translate/v2?key={key}&source={source}&target={target}&q={query}";
+    
+    private String apiKey;
+    
+    public void setApiKey(String apiKey) {
+        this.apiKey = apiKey;
     }
     
-    public String translateMessage(String untranslated, Language language) {
-        // Set the HTTP referrer to your website address.
-        Translate.setHttpReferrer("http://localhost:8080/uPortal");
+    private String defaultLanguageKey;
+    
+    public void setDefaultLanguageKey(String defaultLanguageKey) {
+        this.defaultLanguageKey = defaultLanguageKey;
+    }
+    
+    private RestTemplate restTemplate;
+    
+    public AutoTranslationService() {
+        this.restTemplate = new RestTemplate();
+        List<HttpMessageConverter<?>> converters = Collections.<HttpMessageConverter<?>>singletonList(new MappingJacksonHttpMessageConverter());
+        this.restTemplate.setMessageConverters(converters);
+    }
+    
+    public Map<String,String> getAutoUpdatedTranslationMap(Map<String, String> mainMap, Map<String, String> targetMap, String languageKey) {
 
-        try {
-            String translated = Translate.execute(untranslated, Language.ENGLISH, language);
-            return translated;
-        } catch (Exception e) {
-            System.out.println(e);
+        // assemble a set of keys represented in the main map but not in the
+        // target language map
+        Set<String> missing = mainMap.keySet();
+        missing.removeAll(targetMap.keySet());
+        
+        // put the keys in a list so that we have a consistent ordering
+        List<String> keys = new ArrayList<String>();
+        keys.addAll(missing);
+
+        // assemble a list of untranslated messages in the same order as our
+        // missing key list
+        List<String> untranslatedMessages = new ArrayList<String>();
+        for (String key : keys) {
+            untranslatedMessages.add(mainMap.get(key));
         }
-        return untranslated;
+                
+        Map<String, Object> parameters = new HashMap<String, Object>();
+        parameters.put("key", this.apiKey);
+        parameters.put("source", this.defaultLanguageKey);
+        parameters.put("target", languageKey);
+        parameters.put("query", untranslatedMessages);
+        
+        GoogleTranslationResponse response = this.restTemplate.getForObject(urlTemplate, GoogleTranslationResponse.class, parameters);        
+        List<Translation> translations = response.getTranslations();
+        
+        // iterate through the auto-translations, adding each to the target
+        // map
+        ListIterator<Translation> iter = translations.listIterator();
+        while (iter.hasNext()) {
+            Translation translation = iter.next();
+            String key = keys.get(iter.previousIndex());
+            targetMap.put(key, translation.getTranslatedText());
+        }
+        
+        return targetMap;
     }
     
 }

@@ -1,16 +1,14 @@
 package org.jasig.i18n.translate;
 
-import java.util.HashMap;
+import java.io.IOException;
 import java.util.HashSet;
-import java.util.Map;
+import java.util.List;
 import java.util.Set;
 
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
-
-import com.google.api.translate.Language;
 
 /**
  * Goal which reports missing message keys for a set of target languages.
@@ -26,39 +24,40 @@ public class ReportMissingKeysMojo extends AbstractMojo {
      *
      * @parameter default-value="${basedir}/src/main/resources/properties/i18n/"
      */
-    protected String messagesDirectory = "";
+    private String messagesDirectory;
+
+    /**
+     * @parameter default-value="Messages.properties"
+     */
+    private String mainMessagesFile;
+
+    /**
+     * @parameter default-value="es,ja,fr,de,mk,sv,lv"
+     */
+    private List<String> languageKeys;
     
-    protected String mainMessagesFile = "Messages.properties";
-    
-    protected Map<String, Language> languages;
-    
-    protected MessageFileService messageFileService;
+    private MessageFileService messageFileService;
     
     public ReportMissingKeysMojo() {
-        languages = new HashMap<String, Language>();
-        languages.put("es", Language.SPANISH);
-        languages.put("ja", Language.JAPANESE);
-        languages.put("fr", Language.FRENCH);
-        languages.put("de", Language.GERMAN);
-        languages.put("mk", Language.MACEDONIAN);
-        languages.put("sv", Language.SWEDISH);
-        languages.put("lv", Language.LATVIAN);
-        
         messageFileService = new MessageFileService();
     }
 
     public void execute() throws MojoExecutionException {
 
-        // parse the main messages file and create a set of its defined 
-        // message keys
-        Resource resource = new FileSystemResource(messagesDirectory + "Messages.properties");
-        Set<String> mainKeys = messageFileService.getMessageKeysFromFile(resource);
+        Set<String> mainKeys = null;
+        
+        try {
+            // parse the main messages file and create a set of its defined 
+            // message keys
+            Resource resource = new FileSystemResource(messagesDirectory + mainMessagesFile);
+            mainKeys = messageFileService.getMessageKeysFromFile(resource);
+        } catch (IOException ex) {
+            System.out.println("Main messages file could not be located");
+        }
 
         // for each configured language, check the keys in the language file 
         // against those in the main file
-        for (Map.Entry<String, Language> entry : languages.entrySet()) {
-            String key = entry.getKey();
-            Language lang = entry.getValue();
+        for (String key : languageKeys) {
 
             try {
 
@@ -75,11 +74,11 @@ public class ReportMissingKeysMojo extends AbstractMojo {
                 
                 // report any missing keys for the current language
                 if (missingKeys.size() > 0) {
-                    System.out.println("Found " + missingKeys.size() + " missing keys for " + lang.name() + "(" + missingKeys.toString() + ")");
+                    System.out.println("Found " + missingKeys.size() + " missing keys for " + key + "(" + missingKeys.toString() + ")");
                 }
                 
             } catch (Exception ex) {
-                System.out.println("Messages file for language '" + key + "' (" + lang.name() + ") cannot be located");
+                System.out.println("Messages file for language '" + key + "' (" + key + ") cannot be located");
                 return;
             }
         }

@@ -2,6 +2,7 @@ package org.jasig.i18n.translate;
 
 import static org.junit.Assert.assertEquals;
 
+import java.io.IOException;
 import java.util.Map;
 import java.util.Set;
 
@@ -32,13 +33,13 @@ public class MessageFileServiceTest {
     }
     
     @Test
-    public void testGetMessageKeys() {
+    public void testGetMessageKeys() throws IOException {
         Set<String> keys = messageFileService.getMessageKeysFromFile(messageFile);
         assertEquals(3, keys.size());
     }
     
     @Test
-    public void testGetMessageMap() {
+    public void testGetMessageMap() throws IOException {
         Map<String, String> keys = messageFileService.getMessageMapFromFile(messageFile);
         assertEquals(3, keys.size());
         assertEquals("Third Message", keys.get("key3"));
